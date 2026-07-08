@@ -1,0 +1,9 @@
+type: datasources.components.DltLoadSourceCollection
+
+attributes:
+  loads:
+    - source: .loader.source
+      pipeline: .loader.pipeline
+      translation:
+        key: lims/{{ resource.name }}
+        group_name: lims
