@@ -21,10 +21,9 @@ lims_sync_job = dg.define_asset_job(
 )
 
 # daily-partitioned job -> schedule fires at 03:00 UTC for the previous day
-sync_lims_signals_daily = dg.build_schedule_from_partitioned_job(
-    lims_sync_job,
-    hour_of_day=3,
+sync_lims_signals_daily = dg.ScheduleDefinition(
+    job=lims_sync_job,
+    cron_schedule="0 3 * * *",
     name="sync_lims_signals_daily",
-    description="Syncs the previous day's signals from LIMS every day at 03:00 UTC",
+    description="Syncs signals from LIMS every day at 03:00 UTC",
 )
-    
