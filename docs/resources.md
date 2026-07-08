@@ -4,7 +4,7 @@ A **resource** is one stream of records from a source — one API endpoint, one 
 
 ## Option 1: declarative REST (`rest_api_source`)
 
-Best default for JSON REST APIs. You describe the API; dlt handles requests, pagination, retries, and streaming. [`mdharura/loader.py`](../src/datasources/defs/mdharura/loader.py) is a working example — it pulls EBS signals from the m-Dharura Data Export API:
+Best default for simple, non-partitioned REST APIs. You describe the API; dlt handles requests, pagination, retries, and streaming:
 
 ```python
 from dlt.sources.rest_api import rest_api_source
@@ -43,7 +43,9 @@ Common paginator types: `page_number` (as above), `json_link` (next-page URL in 
 
 ## Option 2: hand-written resource with `RESTClient`
 
-Drop to this when you need **page-level control**: reading the response envelope (counts, metadata), transforming whole pages, cross-page state, or early stopping. You keep dlt's paginators and retry handling.
+Drop to this when you need **page-level control** (reading the response envelope, transforming whole pages, cross-page state, early stopping) or **partitioned/windowed loading** — per-run date bounds only flow into a hand-written resource. You keep dlt's paginators and retry handling.
+
+[`mdharura/loader.py`](../src/datasources/defs/mdharura/loader.py) is the working example. Its resource declares a `dlt.sources.incremental` argument and passes the bounds to the API — which is what lets our component bind each Dagster partition's time window onto the request ([how backfills work](dagster.md#partitions-and-backfills)):
 
 ```python
 import dlt
@@ -55,23 +57,29 @@ client = RESTClient(
     paginator=PageNumberPaginator(base_page=1, total_path="pages"),
 )
 
+SIGNALS_OF_INTEREST = {"7", "8"}
+
 @dlt.source(name="mdharura")
 def mdharura_source():
 
-    @dlt.resource(name="tasks", primary_key="_id", write_disposition="append")
-    def tasks():
-        for page in client.paginate("export/tasks", params={"limit": 500}):
-            envelope = page.response.json()      # full page object: total, pages, data
+    @dlt.resource(name="signals", primary_key="id", write_disposition="append")
+    def signals(
+        created_at=dlt.sources.incremental("created_at", initial_value="2026-06-01T00:00:00.000Z"),
+    ):
+        params = {"limit": 500, "state": "live", "dateStart": created_at.last_value}
+        if created_at.end_value:
+            params["dateEnd"] = created_at.end_value
+        for page in client.paginate("export/tasks", params=params):
             yield [
-                {**record, "total_at_fetch": envelope["total"]}
-                for record in envelope["data"]
-                if record["state"] == "live"
+                map_task(task)
+                for task in page
+                if str(task.get("signal")) in SIGNALS_OF_INTEREST
             ]
 
-    return tasks
+    return signals
 ```
 
-`client.paginate()` yields one page at a time; `page.response` is the raw `requests.Response`. Yield whatever you want records to be — a list per page, one record at a time, or a summary row.
+`client.paginate()` yields one page at a time; `page.response` is the raw `requests.Response` when you need the envelope. Yield whatever you want records to be — a list per page, one record at a time, or a summary row.
 
 ## Option 3: plain generator
 
@@ -84,11 +92,26 @@ def lab_results():
         yield from parse_result_file(path)
 ```
 
-## Transforming records before the destination
+## Filtering and transforming records before the destination
 
-Transforms attach to resources and run **record-by-record, streaming, during extraction** — nothing is written until they've run.
+Transforms and filters run **record-by-record, streaming, during extraction** — nothing is written until they've run. Filtered-out records never reach the bucket.
 
-In declarative configs, use `processing_steps` per resource:
+**In hand-written resources**, filter and map inline in the generator — you control exactly what gets yielded. This is how mdharura keeps only the signal codes it cares about (the API has no signal query param, so it must happen client-side):
+
+```python
+SIGNALS_OF_INTEREST = {"7", "8"}
+
+for page in client.paginate("export/tasks", params=params):
+    yield [
+        map_task(task)                                   # transform
+        for task in page
+        if str(task.get("signal")) in SIGNALS_OF_INTEREST  # filter
+    ]
+```
+
+Prefer a server-side filter (query param) whenever the API offers one — it avoids fetching records just to drop them. Client-side filtering still pages through everything; it only keeps the bucket clean.
+
+**In declarative configs**, use `processing_steps` per resource:
 
 ```python
 "resources": [
@@ -124,29 +147,31 @@ def task_units(task):
 
 ## Incremental loading
 
-Full reloads (`write_disposition="replace"`) are fine for small reference data but wasteful for large or growing endpoints — m-Dharura has 225k+ tasks. The `tasks` resource loads incrementally: dlt remembers the newest `created_at` seen and passes it to the API as `dateStart` on the next run, so each run fetches only new signals:
+Full reloads (`write_disposition="replace"`) are fine for small reference data but wasteful for large or growing endpoints — m-Dharura has 225k+ tasks. Two incremental patterns:
+
+**Partition-windowed (preferred — what mdharura uses).** The resource declares a `dlt.sources.incremental` argument (see Option 2 above) and the asset is time-partitioned in `defs.yaml`; each run loads exactly its partition's window and backfills are Dagster-native. Details: [dagster.md — Partitions and backfills](dagster.md#partitions-and-backfills).
+
+**Cursor-state (declarative sources).** In `rest_api_source` configs, an `incremental` block on the endpoint makes dlt remember the newest cursor seen and pass it as a query param on the next run:
 
 ```python
 "endpoint": {
-    "path": "export/tasks",
-    "params": {"limit": 50, "state": "live"},
+    "path": "records",
     "data_selector": "data",
     "incremental": {
         "start_param": "dateStart",       # query param the API filters on
-        "cursor_path": "created_at",      # field dlt tracks — post-map name!
-        "initial_value": "2026-07-06T00:00:00.000Z",   # backfill start — set
-                                          # earlier to load full history
+        "cursor_path": "created_at",      # field dlt tracks
+        "initial_value": "2021-09-01T00:00:00.000Z",
     },
 },
 "write_disposition": "append",
 ```
 
-The cursor is stored in pipeline state between runs. To re-backfill from scratch, change `initial_value` and reset the pipeline state (see [pipelines-and-destinations.md](pipelines-and-destinations.md#pipeline-state-and-troubleshooting)). Full docs: [incremental loading](https://dlthub.com/docs/general-usage/incremental-loading).
+The cursor lives in pipeline state between runs; to re-backfill, change `initial_value` and reset the pipeline state (see [pipelines-and-destinations.md](pipelines-and-destinations.md#pipeline-state-and-troubleshooting)). Full docs: [incremental loading](https://dlthub.com/docs/general-usage/incremental-loading).
 
-Caveat: a `createdAt` cursor only picks up **new** records. m-Dharura tasks are updated after creation (verification/response forms get filled in), so records loaded early may go stale until a periodic full refresh or an `updatedAt`-based strategy is added.
+Caveat (both patterns): a `created_at` cursor only picks up **new** records. m-Dharura tasks are updated after creation (verification/response forms get filled in), so records loaded early may go stale until affected partitions are re-run or an `updatedAt`-based strategy is added.
 
 ## Schema control
 
-- `max_table_nesting=0` on the source stops dlt from exploding nested objects into child tables — the mdharura source uses this so each task stays one raw record with its EBS forms inline as JSON.
+- `max_table_nesting=0` on a source stops dlt from exploding nested objects into child tables (useful for keeping raw API records intact; mdharura instead maps records flat before yielding, which achieves the same thing explicitly).
 - `columns={...}` on a resource pins types when inference guesses wrong.
 - Without a nesting limit, nested lists become child tables named `<resource>__<field>` — you'd see them as extra folders in the bucket; that's expected.

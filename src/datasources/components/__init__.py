@@ -2,12 +2,41 @@
 
 import ast
 import textwrap
+from datetime import datetime, timezone
 from pathlib import Path
 
 import dagster as dg
+import dlt
 from dagster.components.core.context import ComponentLoadContext
 from dagster_dlt import DltLoadCollectionComponent as _DltLoadCollectionComponent
+from dagster_dlt.constants import META_KEY_SOURCE
 from dagster.components.scaffold.scaffold import ScaffoldRequest, scaffold_with
+
+
+def _iso_z(dt: datetime) -> str:
+    """Format a datetime the way the source APIs and cursors do: ISO-8601 UTC with a Z."""
+    dt = dt.astimezone(timezone.utc)
+    return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{dt.microsecond // 1000:03d}Z"
+
+
+def _cursor_path(resource) -> str | None:
+    """The dlt incremental cursor path of a resource, from an applied hint or
+    the resource function's signature default (`x=dlt.sources.incremental(...)`)."""
+    import inspect
+
+    from dlt.extract.incremental import IncrementalResourceWrapper
+
+    wrapper = resource.incremental
+    if wrapper is None:
+        return None
+    if wrapper.incremental is not None:
+        return wrapper.incremental.cursor_path
+    param = IncrementalResourceWrapper.get_incremental_arg(
+        inspect.signature(resource._pipe.gen)
+    )
+    if param is not None and param.default is not inspect.Parameter.empty:
+        return param.default.cursor_path
+    return None
 
 LOADER_TEMPLATE = '''\
 """{name}: load data from <API> into MinIO.
@@ -94,7 +123,35 @@ class DltLoadSourceCollection(_DltLoadCollectionComponent):
     description ends with the full loader.py source, rendered as a Python code
     block in the UI. The leading summary line is the translation.description
     from defs.yaml when set, otherwise the loader.py docstring's first line.
+
+    Loads with a partitions_def get windowed execution: the run's partition
+    time window is bound onto every resource that declares a dlt incremental,
+    as ISO-8601 Z strings (initial_value/end_value). With a single_run
+    backfill policy, a whole backfill range becomes one windowed run.
     """
+
+    def execute(self, context, dlt_pipeline_resource):
+        # has_partition_key is True only for single-partition runs; ranged
+        # runs (single_run backfills) set a partition key range instead
+        if not (context.has_partition_key or context.has_partition_key_range):
+            yield from super().execute(context, dlt_pipeline_resource)
+            return
+
+        window = context.partition_time_window
+        metadata = next(iter(context.assets_def.metadata_by_key.values()))
+        source = metadata[META_KEY_SOURCE]
+        for resource in source.resources.values():
+            cursor_path = _cursor_path(resource)
+            if cursor_path is None:
+                continue
+            resource.apply_hints(
+                incremental=dlt.sources.incremental(
+                    cursor_path,
+                    initial_value=_iso_z(window.start),
+                    end_value=_iso_z(window.end),
+                )
+            )
+        yield from dlt_pipeline_resource.run(context=context, dlt_source=source)
 
     def build_defs(self, context: ComponentLoadContext) -> dg.Definitions:
         defs = super().build_defs(context)

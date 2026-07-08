@@ -4,6 +4,11 @@ attributes:
   loads:
     - source: .loader.source
       pipeline: .loader.pipeline
+      partitions_def:
+        type: daily
+        start_date: "2026-06-01"   # data before June 2026 is not loaded
+      backfill_policy:
+        type: single_run           # a backfill range = one windowed run
       translation:
         key: "mdharura/{{ resource.name }}"
         group_name: mdharura

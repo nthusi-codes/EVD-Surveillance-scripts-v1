@@ -35,6 +35,8 @@ Human-oriented docs live in `docs/` — [developer-walkthrough.md](docs/develope
 ## Known gotchas (verified in this repo)
 
 - `processing_steps` maps run **before** the incremental cursor is read. `cursor_path` and `primary_key` must use the field names the map **emits**, or the run fails with `IncrementalCursorPathMissing`.
+- Partitioned loads require the hand-written `RESTClient` style — per-run window bounds cannot flow into a declarative `rest_api_source`. Cursor values and window bounds are ISO-8601 `Z` strings by repo convention.
+- Partition runs `append`: re-running the same partition writes duplicate rows. Dedupe downstream on `id`/`_dlt_load_id`, or clear that window's files first.
 - Secrets/API tokens are read via `dlt.secrets["datasources.<name>.<key>"]` from `.dlt/secrets.toml` or `DATASOURCES__<NAME>__<KEY>` env vars — never hardcode.
 - The MinIO endpoint goes in `[destination.filesystem.credentials] endpoint_url`, never inside `bucket_url`.
 - The component YAML file must be named exactly `defs.yaml` or the folder silently loads as a plain module.
@@ -45,7 +47,14 @@ Human-oriented docs live in `docs/` — [developer-walkthrough.md](docs/develope
 
 ## Reference implementation
 
-`src/datasources/defs/mdharura/` is the canonical example: REST API with `page_number` pagination, a `processing_steps` map reshaping records, and incremental loading via `dateStart`/`created_at`.
+`src/datasources/defs/mdharura/` is the canonical example: a hand-written `RESTClient` resource with `page_number` pagination, an inline filter (only signal codes in `SIGNALS_OF_INTEREST`) plus a mapping function reshaping records before yield, and **daily partitions** — the resource declares a `dlt.sources.incremental("created_at")` argument and passes its bounds to the API as `dateStart`/`dateEnd`; the component binds each run's partition window onto those bounds (ISO-8601 `Z` strings). `defs.yaml` sets `partitions_def` + `backfill_policy: single_run`, so backfilling history is `dg launch --assets "<key>" --partition-range "<start>...<end>"` (one windowed run). Jobs/schedules live in `defs/schedules.py`: `define_asset_job` per source + `build_schedule_from_partitioned_job`.
+
+Partition test for a partitioned source (verify counts against the API):
+
+```bash
+DESTINATION__FILESYSTEM__BUCKET_URL="file:///tmp/dlt-test" \
+  uv run dg launch --assets "<source>/<resource>" --partition "2026-07-06"
+```
 
 ## Contribution workflow
 
