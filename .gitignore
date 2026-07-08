@@ -208,3 +208,5 @@ __marimo__/
 .dlt/secrets.toml
 
 .tmp_*
+# deploy target (internal infrastructure, never committed)
+deploy/.env.deploy

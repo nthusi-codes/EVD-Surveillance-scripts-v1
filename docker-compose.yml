@@ -19,7 +19,9 @@ services:
       DESTINATION__FILESYSTEM__CREDENTIALS__AWS_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY:-minioadmin}
       DESTINATION__FILESYSTEM__CREDENTIALS__AWS_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       DESTINATION__FILESYSTEM__CREDENTIALS__ENDPOINT_URL: ${MINIO_ENDPOINT_URL:-http://host.docker.internal:9000}
+      # per-source API tokens: containers have no .dlt/secrets.toml (.dockerignore)
       DATASOURCES__LIMS__API_TOKEN: ${LIMS_API_TOKEN}
+      DATASOURCES__CBS__API_KEY: ${CBS_API_KEY:?set CBS_API_KEY in .env}
     volumes:
       - dagster_data:/opt/dagster/data
     extra_hosts:

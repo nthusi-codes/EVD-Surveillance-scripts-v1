@@ -27,3 +27,17 @@ sync_lims_results_daily = dg.ScheduleDefinition(
     name="sync_lims_results_daily",
     description="Syncs results from LIMS every day at 03:00 UTC",
 )
+
+cbs_sync_job = dg.define_asset_job(
+    name="cbs_sync_job",
+    selection=dg.AssetSelection.groups("cbs"),
+    description="Loads CBS reports and screenings for one partition (day) into MinIO",
+)
+
+# daily-partitioned job -> schedule fires at 06:00 UTC for the previous day
+sync_cbs_daily = dg.build_schedule_from_partitioned_job(
+    cbs_sync_job,
+    hour_of_day=6,
+    name="sync_cbs_daily",
+    description="Syncs the previous day's CBS reports and screenings every day at 06:00 UTC",
+)
