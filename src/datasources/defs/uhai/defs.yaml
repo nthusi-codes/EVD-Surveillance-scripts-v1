@@ -1,0 +1,14 @@
+type: datasources.components.DltLoadSourceCollection
+
+attributes:
+  loads:
+    - source: .loader.source
+      pipeline: .loader.pipeline
+      partitions_def:
+        type: daily
+        start_date: "2026-07-03"
+      backfill_policy:
+        type: single_run
+      translation:
+        key: uhai/{{ resource.name }}
+        group_name: uhai

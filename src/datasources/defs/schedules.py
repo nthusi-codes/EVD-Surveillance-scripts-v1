@@ -27,3 +27,17 @@ sync_lims_results_daily = dg.ScheduleDefinition(
     name="sync_lims_results_daily",
     description="Syncs results from LIMS every day at 03:00 UTC",
 )
+
+uhai_sync_job = dg.define_asset_job(
+    name="uhai_sync_job",
+    selection=dg.AssetSelection.groups("uhai"),
+    description="Loads Uhai traveler screenings for one partition (day) into MinIO",
+)
+
+# daily-partitioned job -> schedule fires at 04:00 UTC for the previous day
+sync_uhai_screenings_daily = dg.build_schedule_from_partitioned_job(
+    uhai_sync_job,
+    hour_of_day=4,
+    name="sync_uhai_screenings_daily",
+    description="Syncs the previous day's Uhai traveler screenings every day at 04:00 UTC",
+)
