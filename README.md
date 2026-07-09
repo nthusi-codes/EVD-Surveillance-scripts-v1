@@ -6,8 +6,13 @@ A [Dagster](https://docs.dagster.io/) + [dlt](https://dlthub.com/docs) data plat
 src/datasources/
 ├── definitions.py              # autoloads everything under defs/ — never edit
 └── defs/
-    └── mdharura/               # one folder per data source
-        ├── defs.yaml           # wires the dlt pipeline into Dagster
+    ├── adam/                   # one folder per data source
+    │   ├── defs.yaml           # wires the dlt loads into Dagster
+    │   ├── evd_cases_loader.py       # a folder can hold several loaders,
+    │   └── evd_travellers_loader.py  # each with its own source + pipeline
+    ├── lims/
+    └── mdharura/
+        ├── defs.yaml
         └── loader.py           # the dlt source (API calls) + pipeline (destination)
 ```
 
@@ -52,7 +57,7 @@ dg check defs                                # validates everything loads
 dg launch --assets "my_source/<resource>"    # test-run it
 ```
 
-Full walkthrough: [docs/adding-a-source.md](docs/adding-a-source.md). Use [`defs/mdharura/`](src/datasources/defs/mdharura/) as a working reference — it incrementally pulls EBS signals from the [m-Dharura API](https://api.m-dharura.health.go.ke/swaggerui/) and loads to MinIO (S3-compatible object storage).
+Full walkthrough: [docs/adding-a-source.md](docs/adding-a-source.md). Use [`defs/mdharura/`](src/datasources/defs/mdharura/) as a working reference — it incrementally pulls EBS signals from the [m-Dharura API](https://api.m-dharura.health.go.ke/swaggerui/) and loads to MinIO (S3-compatible object storage). [`defs/adam/`](src/datasources/defs/adam/) shows a folder with two loaders (case investigations and traveller screenings) against a POST API.
 
 ## Documentation
 

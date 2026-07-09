@@ -24,7 +24,9 @@ loads:
       group_name: mdharura
 ```
 
-Each asset produced by our component also self-documents, dbt-style. Its **description** is a plain-text summary line followed by the full `loader.py` source rendered as a Python code block — the summary shows in asset lists, the code on the asset page. The summary is `translation.description` from `defs.yaml` when set, otherwise the first line of the `loader.py` module docstring — so write a real docstring either way.
+A folder may define several loads — [`adam/defs.yaml`](../src/datasources/defs/adam/defs.yaml) wires two loader modules (`evd_cases_loader.py`, `evd_travellers_loader.py`) into the `adam/cases` and `adam/travellers` assets, each with its own pipeline.
+
+Each asset produced by our component also self-documents, dbt-style. Its **description** is a plain-text summary line followed by the full source of the loader module that defines its dlt source, rendered as a Python code block — the summary shows in asset lists, the code on the asset page. The component matches each asset's dlt source against the `source` objects of the `.py` files in the component folder, so it works with a single `loader.py` (mdharura, lims) or several loader modules (adam). The summary is the first line of that module's docstring — so write a real docstring.
 
 Convention: key prefix and group = the source folder name. Dagster also creates an upstream *external* asset per resource (e.g. `mdharura_signals`) representing the raw API — it has no materialization function; it's lineage metadata.
 
@@ -64,11 +66,11 @@ Naming: `<source>_sync_job` and `sync_<source>_<resource>_<cadence>`. Schedules 
 
 ## Partitions and backfills
 
-The mdharura load is **daily-partitioned** (see its [`defs.yaml`](../src/datasources/defs/mdharura/defs.yaml)): each partition run loads exactly one day's records, and loading history is an ordinary Dagster backfill. Three pieces make this work:
+The mdharura and adam loads are **daily-partitioned** (see [`mdharura/defs.yaml`](../src/datasources/defs/mdharura/defs.yaml) and [`adam/defs.yaml`](../src/datasources/defs/adam/defs.yaml)): each partition run loads exactly one day's records, and loading history is an ordinary Dagster backfill. Three pieces make this work:
 
 1. `partitions_def` + `backfill_policy: single_run` on the load in `defs.yaml`. With `single_run`, a backfill over any partition range collapses into **one windowed run** instead of one run per day.
 2. Our component ([`datasources/components`](../src/datasources/components/__init__.py)) binds the run's partition time window onto every resource that declares a `dlt.sources.incremental` — as ISO-8601 `Z` strings via `initial_value`/`end_value`.
-3. The loader's resource reads those bounds and passes them to the API (`dateStart`/`dateEnd` in [`mdharura/loader.py`](../src/datasources/defs/mdharura/loader.py)). This requires the hand-written `RESTClient` style ([resources.md, option 2](resources.md#option-2-hand-written-resource-with-restclient)) — the declarative `rest_api_source` can't receive per-run bounds.
+3. The loader's resource reads those bounds and passes them to the API (`dateStart`/`dateEnd` query params in [`mdharura/loader.py`](../src/datasources/defs/mdharura/loader.py); `timestamp_start`/`timestamp_end` in the POST body in the [adam loaders](../src/datasources/defs/adam)). This requires the hand-written `RESTClient` style ([resources.md, option 2](resources.md#option-2-hand-written-resource-with-restclient)) — the declarative `rest_api_source` can't receive per-run bounds.
 
 Running backfills:
 
@@ -81,7 +83,7 @@ dg launch --assets "mdharura/signals" --partition-range "2026-06-01...2026-07-01
 
 or in the UI: asset page → **Materialize** → select partitions / **Backfill**.
 
-Caveats: partition runs use `write_disposition="append"`, so **re-running the same partition appends duplicates** — dedupe downstream on `id` (or `_dlt_load_id`) or delete that day's files from the bucket first. Timestamps use the ISO-8601 `Z` convention throughout (cursor values, API params); a source with a different cursor format needs its own conversion in the loader.
+Caveats: **re-running the same partition writes duplicate rows** — mdharura uses `write_disposition="append"`, and while the adam resources declare `merge`, that degrades to append on our destination ([why](pipelines-and-destinations.md#write-dispositions-on-object-storage)). Dedupe downstream on the primary key (or `_dlt_load_id`) or delete that day's files from the bucket first. Timestamps use the ISO-8601 `Z` convention throughout (cursor values, API params); a source with a different cursor format needs its own conversion in the loader.
 
 ## Useful commands
 

@@ -1,4 +1,4 @@
-"""Load travellers surveillance dagta from ADaM API into MinIO.
+"""Load travellers surveillance data from ADaM API into MinIO.
 
 ADaM is the tool used to screen travellers at the point of entry.
 

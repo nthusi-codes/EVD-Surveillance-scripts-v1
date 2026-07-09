@@ -36,7 +36,7 @@ Human-oriented docs live in `docs/` — [developer-walkthrough.md](docs/develope
 
 - `processing_steps` maps run **before** the incremental cursor is read. `cursor_path` and `primary_key` must use the field names the map **emits**, or the run fails with `IncrementalCursorPathMissing`.
 - Partitioned loads require the hand-written `RESTClient` style — per-run window bounds cannot flow into a declarative `rest_api_source`. Cursor values and window bounds are ISO-8601 `Z` strings by repo convention.
-- Partition runs `append`: re-running the same partition writes duplicate rows. Dedupe downstream on `id`/`_dlt_load_id`, or clear that window's files first.
+- Re-running the same partition writes duplicate rows: `append` appends, and `merge` (which the adam resources declare) is only honored by the `filesystem` destination with delta/iceberg table formats — on plain files it also just adds new ones ([details](docs/pipelines-and-destinations.md#write-dispositions-on-object-storage)). Dedupe downstream on `id`/`_dlt_load_id`, or clear that window's files first.
 - Secrets/API tokens are read via `dlt.secrets["datasources.<name>.<key>"]` from `.dlt/secrets.toml` or `DATASOURCES__<NAME>__<KEY>` env vars — never hardcode.
 - The MinIO endpoint goes in `[destination.filesystem.credentials] endpoint_url`, never inside `bucket_url`.
 - The component YAML file must be named exactly `defs.yaml` or the folder silently loads as a plain module.
@@ -48,6 +48,8 @@ Human-oriented docs live in `docs/` — [developer-walkthrough.md](docs/develope
 ## Reference implementation
 
 `src/datasources/defs/mdharura/` is the canonical example: a hand-written `RESTClient` resource with `page_number` pagination, an inline filter (only signal codes in `SIGNALS_OF_INTEREST`) plus a mapping function reshaping records before yield, and **daily partitions** — the resource declares a `dlt.sources.incremental("created_at")` argument and passes its bounds to the API as `dateStart`/`dateEnd`; the component binds each run's partition window onto those bounds (ISO-8601 `Z` strings). `defs.yaml` sets `partitions_def` + `backfill_policy: single_run`, so backfilling history is `dg launch --assets "<key>" --partition-range "<start>...<end>"` (one windowed run). Jobs/schedules live in `defs/schedules.py`: `define_asset_job` per source + `build_schedule_from_partitioned_job`.
+
+`src/datasources/defs/adam/` shows the variations: one component folder with **two loader modules** (`evd_cases_loader.py`, `evd_travellers_loader.py`), each exposing its own `source`/`pipeline` pair that `defs.yaml` references by module name (`.evd_cases_loader.source`, …); a **POST** API paged via `PageNumberPaginator(base_page=0, page_body_path="page", total_path=None)` with the partition window sent in the request body (`timestamp_start`/`timestamp_end`); and a server-side `projection` in the body instead of a client-side map.
 
 Partition test for a partitioned source (verify counts against the API):
 

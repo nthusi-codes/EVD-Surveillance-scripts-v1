@@ -57,7 +57,7 @@ client = RESTClient(
     paginator=PageNumberPaginator(base_page=1, total_path="pages"),
 )
 
-SIGNALS_OF_INTEREST = {"7", "8"}
+SIGNALS_OF_INTEREST = {"7", "8", "H4"}
 
 @dlt.source(name="mdharura")
 def mdharura_source():
@@ -66,7 +66,7 @@ def mdharura_source():
     def signals(
         created_at=dlt.sources.incremental("created_at", initial_value="2026-06-01T00:00:00.000Z"),
     ):
-        params = {"limit": 500, "state": "live", "dateStart": created_at.last_value}
+        params = {"limit": 100, "state": "live", "dateStart": created_at.last_value}
         if created_at.end_value:
             params["dateEnd"] = created_at.end_value
         for page in client.paginate("export/tasks", params=params):
@@ -80,6 +80,8 @@ def mdharura_source():
 ```
 
 `client.paginate()` yields one page at a time; `page.response` is the raw `requests.Response` when you need the envelope. Yield whatever you want records to be — a list per page, one record at a time, or a summary row.
+
+The adam loaders ([`evd_cases_loader.py`](../src/datasources/defs/adam/evd_cases_loader.py), [`evd_travellers_loader.py`](../src/datasources/defs/adam/evd_travellers_loader.py)) are the same pattern against a **POST** API: `PageNumberPaginator(base_page=0, page_body_path="page", total_path=None)` writes the page number into the JSON request body and stops on the first empty page, the incremental bounds go into the body as `timestamp_start`/`timestamp_end`, and a server-side `projection` in the body reshapes records at the API — so no client-side map is needed.
 
 ## Option 3: plain generator
 
@@ -99,7 +101,7 @@ Transforms and filters run **record-by-record, streaming, during extraction** �
 **In hand-written resources**, filter and map inline in the generator — you control exactly what gets yielded. This is how mdharura keeps only the signal codes it cares about (the API has no signal query param, so it must happen client-side):
 
 ```python
-SIGNALS_OF_INTEREST = {"7", "8"}
+SIGNALS_OF_INTEREST = {"7", "8", "H4"}
 
 for page in client.paginate("export/tasks", params=params):
     yield [
@@ -149,7 +151,7 @@ def task_units(task):
 
 Full reloads (`write_disposition="replace"`) are fine for small reference data but wasteful for large or growing endpoints — m-Dharura has 225k+ tasks. Two incremental patterns:
 
-**Partition-windowed (preferred — what mdharura uses).** The resource declares a `dlt.sources.incremental` argument (see Option 2 above) and the asset is time-partitioned in `defs.yaml`; each run loads exactly its partition's window and backfills are Dagster-native. Details: [dagster.md — Partitions and backfills](dagster.md#partitions-and-backfills).
+**Partition-windowed (preferred — what mdharura and adam use).** The resource declares a `dlt.sources.incremental` argument (see Option 2 above) and the asset is time-partitioned in `defs.yaml`; each run loads exactly its partition's window and backfills are Dagster-native. Details: [dagster.md — Partitions and backfills](dagster.md#partitions-and-backfills).
 
 **Cursor-state (declarative sources).** In `rest_api_source` configs, an `incremental` block on the endpoint makes dlt remember the newest cursor seen and pass it as a query param on the next run:
 
@@ -168,7 +170,7 @@ Full reloads (`write_disposition="replace"`) are fine for small reference data b
 
 The cursor lives in pipeline state between runs; to re-backfill, change `initial_value` and reset the pipeline state (see [pipelines-and-destinations.md](pipelines-and-destinations.md#pipeline-state-and-troubleshooting)). Full docs: [incremental loading](https://dlthub.com/docs/general-usage/incremental-loading).
 
-Caveat (both patterns): a `created_at` cursor only picks up **new** records. m-Dharura tasks are updated after creation (verification/response forms get filled in), so records loaded early may go stale until affected partitions are re-run or an `updatedAt`-based strategy is added.
+Caveat (both patterns): a `created_at` cursor only picks up **new** records. m-Dharura tasks are updated after creation (verification/response forms get filled in), so records loaded early may go stale until affected partitions are re-run or an `updatedAt`-based strategy is added. And don't count on `write_disposition="merge"` to reconcile re-loaded records — it degrades to append on our filesystem destination ([details](pipelines-and-destinations.md#write-dispositions-on-object-storage)).
 
 ## Schema control
 
