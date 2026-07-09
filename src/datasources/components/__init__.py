@@ -120,9 +120,12 @@ class DltLoadSourceCollection(_DltLoadCollectionComponent):
     """dlt load collection whose scaffold follows this repo's conventions (loader.py).
 
     Like the dbt integration surfaces each model's SQL, every asset's
-    description ends with the full loader.py source, rendered as a Python code
-    block in the UI. The leading summary line is the translation.description
-    from defs.yaml when set, otherwise the loader.py docstring's first line.
+    description ends with the source of the loader module that defines its
+    dlt source, rendered as a Python code block in the UI. The module is found
+    by matching each asset's dlt source against the `source` objects of the
+    .py files in the component folder, so a folder may hold one loader.py or
+    several (e.g. adam's evd_cases_loader.py / evd_travellers_loader.py). The
+    leading summary line is the module docstring's first line.
 
     Loads with a partitions_def get windowed execution: the run's partition
     time window is bound onto every resource that declares a dlt incremental,
@@ -155,20 +158,34 @@ class DltLoadSourceCollection(_DltLoadCollectionComponent):
 
     def build_defs(self, context: ComponentLoadContext) -> dg.Definitions:
         defs = super().build_defs(context)
-        loader_path = Path(context.path) / "loader.py"
-        if not loader_path.exists():
-            return defs
 
-        code = loader_path.read_text(encoding="utf-8")
-        docstring = ast.get_docstring(ast.parse(code)) or ""
-        fallback = docstring.splitlines()[0] if docstring else f"Defined in {loader_path.name}."
+        # the yaml's `.some_module.source` paths are consumed during resolution,
+        # so recover each load's defining module by importing the folder's .py
+        # files and matching their `source` objects by identity
+        docs_by_source_id: dict[int, tuple[str, str]] = {}
+        for loader_path in sorted(Path(context.path).glob("*.py")):
+            module = context.load_defs_relative_python_module(loader_path)
+            module_source = getattr(module, "source", None)
+            if module_source is None:
+                continue
+            code = loader_path.read_text(encoding="utf-8")
+            docstring = ast.get_docstring(ast.parse(code)) or ""
+            summary = (
+                docstring.splitlines()[0]
+                if docstring
+                else f"Defined in {loader_path.name}."
+            )
+            docs_by_source_id[id(module_source)] = (summary, code)
 
         def _attach(spec: dg.AssetSpec) -> dg.AssetSpec:
+            doc = docs_by_source_id.get(id(spec.metadata.get(META_KEY_SOURCE)))
+            if doc is None:
+                return spec
+            summary, code = doc
             # summary first so list views show readable text; the full source
             # renders as a code block on the asset page
-            summary = spec.description or fallback
             return spec.replace_attributes(
-                description=f"{summary}\n\n```python\n{code}\n```"
+                description=f"{spec.description or summary}\n\n```python\n{code}\n```"
             )
 
         return defs.map_asset_specs(func=_attach)
