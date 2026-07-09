@@ -33,4 +33,5 @@ pipeline = dlt.pipeline(
     pipeline_name="lims",
     destination="filesystem",
     dataset_name="lims_raw",
+    progress=dlt.progress.tqdm(colour="yellow"),
 )

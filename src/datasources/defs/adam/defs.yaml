@@ -1,0 +1,24 @@
+type: datasources.components.DltLoadSourceCollection
+
+attributes:
+  loads:
+    - source: .evd_cases_loader.source
+      pipeline: .evd_cases_loader.pipeline
+      partitions_def:
+        type: daily
+        start_date: "2026-04-01"
+      backfill_policy:
+        type: single_run
+      translation:
+        key: "adam/{{ resource.name }}"
+        group_name: adam
+    - source: .evd_travellers_loader.source
+      pipeline: .evd_travellers_loader.pipeline
+      partitions_def:
+        type: daily
+        start_date: "2026-04-01"
+      backfill_policy:
+        type: single_run
+      translation:
+        key: "adam/{{ resource.name }}"
+        group_name: adam

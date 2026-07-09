@@ -1,6 +1,6 @@
 # Pipelines and destinations
 
-A dlt **pipeline** connects a source to a destination and tracks state (schemas, incremental cursors, load history) between runs. Each source folder defines one:
+A dlt **pipeline** connects a source to a destination and tracks state (schemas, incremental cursors, load history) between runs. Each loader module defines one (a source folder usually has a single `loader.py`; adam has two loader modules, each with its own pipeline):
 
 ```python
 pipeline = dlt.pipeline(
@@ -18,8 +18,12 @@ We store data in [MinIO](https://min.io/), an S3-compatible object store, via dl
 
 ```
 s3://evd/
+├── adam_cases_raw/
+│   └── cases/...
+├── adam_travellers_raw/
+│   └── travellers/...
 └── mdharura_raw/
-    ├── tasks/1783428877.942762.232b0f204d.jsonl.gz
+    ├── signals/1783428877.942762.232b0f204d.jsonl.gz
     ├── _dlt_loads/...          # load bookkeeping — leave in place
     └── _dlt_pipeline_state/... # pipeline state — leave in place
 ```
@@ -30,6 +34,12 @@ Default file format is gzipped JSONL. For Parquet (better for Athena/analytics):
 # in the pipeline's run config — via defs.yaml this is set on the pipeline:
 dlt.pipeline(..., loader_file_format="parquet")   # requires: uv add pyarrow
 ```
+
+### Write dispositions on object storage
+
+The `filesystem` destination only writes files — it never rewrites rows inside existing ones. `append` and `replace` behave as documented, but **`merge` silently degrades to append**: dlt supports merging on this destination only with the `delta`/`iceberg` table formats, so on plain JSONL/Parquet files it resolves no merge strategy and just adds new files. The `primary_key` deduplicates nothing at the destination.
+
+The adam resources declare `write_disposition="merge"` — read that as intent (the latest version of a record should win), but in MinIO it behaves exactly like `append`: re-loading the same window duplicates records. Dedupe on the primary key (or `_dlt_load_id`) in downstream consumers, or delete the affected day's files before re-running.
 
 ## Configuration & secrets
 
