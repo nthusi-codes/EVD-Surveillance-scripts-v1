@@ -1,0 +1,14 @@
+type: datasources.components.DltLoadSourceCollection
+
+attributes:
+  loads:
+    - source: .loader.source
+      pipeline: .loader.pipeline
+      partitions_def:
+        type: daily
+        start_date: "2026-06-01"   # the PoE screening register starts here
+      backfill_policy:
+        type: single_run           # a backfill range = one windowed run
+      translation:
+        key: "krcs_evd_screening/{{ resource.name }}"
+        group_name: krcs_evd_screening

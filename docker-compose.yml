@@ -22,6 +22,9 @@ services:
       # per-source API tokens: containers have no .dlt/secrets.toml (.dockerignore)
       DATASOURCES__LIMS__API_TOKEN: ${LIMS_API_TOKEN}
       DATASOURCES__CBS__API_KEY: ${CBS_API_KEY:?set CBS_API_KEY in .env}
+      DATASOURCES__KRCS_EVD_SCREENING__BASE_URL: ${KRCS_EVD_SCREENING_BASE_URL:-}
+      DATASOURCES__KRCS_EVD_SCREENING__API_KEY: ${KRCS_EVD_SCREENING_API_KEY:-}
+      DATASOURCES__KRCS_EVD_SCREENING__API_SECRET: ${KRCS_EVD_SCREENING_API_SECRET:-}
     volumes:
       - dagster_data:/opt/dagster/data
     extra_hosts:
