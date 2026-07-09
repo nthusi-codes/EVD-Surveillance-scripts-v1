@@ -1,0 +1,11 @@
+type: datasources.components.DltLoadSourceCollection
+
+attributes:
+  loads:
+    - source: .loader.source
+      pipeline: .loader.pipeline
+      backfill_policy:
+        type: single_run # a backfill range = one windowed run
+      translation:
+        key: "echis/{{ resource.name }}"
+        group_name: echis

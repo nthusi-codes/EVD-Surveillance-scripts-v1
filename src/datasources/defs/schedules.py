@@ -42,6 +42,19 @@ sync_lims_results_daily = dg.ScheduleDefinition(
     description="Syncs results from LIMS every day at 03:00 UTC",
 )
 
+uhai_sync_job = dg.define_asset_job(
+    name="uhai_sync_job",
+    selection=dg.AssetSelection.groups("uhai"),
+    description="Loads Uhai traveler screenings for one partition (day) into MinIO",
+)
+
+# daily-partitioned job -> schedule fires at 04:00 UTC for the previous day
+sync_uhai_screenings_daily = dg.build_schedule_from_partitioned_job(
+    uhai_sync_job,
+    hour_of_day=4,
+    name="sync_uhai_screenings_daily",
+    description="Syncs the previous day's Uhai traveler screenings every day at 04:00 UTC"
+)
 cbs_sync_job = dg.define_asset_job(
     name="cbs_sync_job",
     selection=dg.AssetSelection.groups("cbs"),
@@ -67,4 +80,17 @@ sync_krcs_evd_screening_screenings_daily = dg.build_schedule_from_partitioned_jo
     hour_of_day=7,
     name="sync_krcs_evd_screening_screenings_daily",
     description="Syncs the previous day's PoE health screenings every day at 07:00 UTC",
+)
+
+echis_sync_job = dg.define_asset_job(
+    name="echis_sync_job",
+    selection=dg.AssetSelection.groups("echis"),
+    description="Loads echis results for one partition (day) into MinIO",
+)
+
+sync_echis_results_daily = dg.ScheduleDefinition(
+    job=echis_sync_job,
+    cron_schedule="0 1 * * *",
+    name="sync_echis_results_daily",
+    description="Syncs results from echis every day at 01:00 UTC",
 )

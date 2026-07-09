@@ -4,4 +4,4 @@
 [destination.filesystem]
 # MinIO bucket — name only; the server endpoint goes in
 # [destination.filesystem.credentials] (secrets.toml or env vars)
-bucket_url = "s3://evd/"
+bucket_url = "s3://evd-echis/"
