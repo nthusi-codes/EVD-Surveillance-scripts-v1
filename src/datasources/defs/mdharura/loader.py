@@ -80,4 +80,5 @@ pipeline = dlt.pipeline(
     pipeline_name="mdharura",
     destination="filesystem",
     dataset_name="mdharura_raw",
+    progress=dlt.progress.tqdm(colour="yellow"),
 )
