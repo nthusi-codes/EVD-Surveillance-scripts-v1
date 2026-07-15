@@ -1,61 +1,93 @@
-"""Load Uhai Ebola traveler screenings from PostgreSQL into MinIO.
+"""Load Uhai Ebola surveillance cases from the Uhai API into MinIO.
 
-Uhai stores traveler Ebola screening submissions in PostgreSQL. This source
-loads one Dagster partition window at a time from traveler_screenings and joins
-the latest health_passes row for each screening where available.
+The Uhai API returns already-normalized Ebola surveillance records. Each
+Dagster partition is passed to the API as a date window and paginated with
+limit/offset so the source service is not asked for a large response at once.
 """
 
 from collections.abc import Iterator
-from datetime import date, datetime, time
+from datetime import datetime, timezone
+import json
 from typing import Any
+from urllib.error import HTTPError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 import dlt
-import psycopg
-from psycopg.rows import dict_row
 
-BATCH_SIZE = 1000
-
-
-def _database_url() -> str:
-    return dlt.secrets["datasources.uhai.database_url"]
+API_BASE_URL = "https://chat.nphl.go.ke/api/v1/surveillance/ebola-cases"
+PAGE_LIMIT = 100
 
 
-def _iso(value: Any) -> str:
-    if isinstance(value, (date, datetime, time)):
-        return value.isoformat()
-    return "" if value is None else str(value)
+def _api_key() -> str:
+    return dlt.secrets["datasources.uhai.api_key"]
 
 
-def _row_to_screening(row: dict[str, Any]) -> dict[str, Any]:
-    result = row.get("risk_level") or row.get("screening_status") or ""
-    identifier_number = row.get("id_number") or row.get("pass_id_number") or ""
-    names = row.get("full_name") or row.get("pass_full_name") or ""
+def _date_param(value: Any) -> str:
+    if isinstance(value, datetime):
+        return value.astimezone(timezone.utc).date().isoformat()
+    if value is None:
+        return datetime.now(timezone.utc).date().isoformat()
+    return str(value)[:10]
 
+
+def _fetch_cases(date_from: str, date_to: str, offset: int) -> list[dict[str, Any]]:
+    params = urlencode(
+        {
+            "date_from": date_from,
+            "date_to": date_to,
+            "limit": PAGE_LIMIT,
+            "offset": offset,
+        }
+    )
+    request = Request(
+        f"{API_BASE_URL}?{params}",
+        headers={
+            "Accept": "application/json",
+            "x-api-key": _api_key(),
+        },
+    )
+
+    try:
+        with urlopen(request, timeout=60) as response:
+            payload = json.load(response)
+    except HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Uhai API request failed with HTTP {exc.code}: {detail}") from exc
+
+    cases = payload.get("cases", [])
+    if not isinstance(cases, list):
+        raise RuntimeError("Uhai API response key 'cases' must be a list")
+
+    return cases
+
+
+def _case_record(case: dict[str, Any]) -> dict[str, Any]:
     return {
-        "system_id": _iso(row.get("system_id")),
-        "names": names,
-        "sex": row.get("sex") or "",
-        "date_of_birth": _iso(row.get("date_of_birth")),
-        "system_id": _iso(row.get("system_id")),
-        "nationality": row.get("nationality") or "",
-        "identifier_type": row.get("id_type") or "",
-        "identifier": identifier_number,
-        "suspected": "yes" if row.get("risk_level") == "high_risk" else "no",
-        "screening": row.get("status") or "",
-        "confirmed": "",
-        "died": "",
-        "recovered": "",
-        "tested": "",
-        "result": result,
-        "point_of_entry": row.get("entry_city") or "",
-        "reporting_county": "",
-        "reporting_sub_county": "",
-        "ward": "",
-        "facility_fid": "",
-        "community_health_unit_chu": "",
-        "reporting_date": _iso(row.get("reporting_date")),
-        "reporting_time": _iso(row.get("reporting_time")),
-        "created_at": _iso(row.get("created_at")),
+        "system_id": str(case.get("system_id") or ""),
+        "names": case.get("names") or "",
+        "sex": case.get("sex") or "",
+        "age": case.get("age"),
+        "date_of_birth": case.get("date_of_birth") or "",
+        "nationality": case.get("nationality") or "",
+        "identifier_type": case.get("identifier_type") or "",
+        "identifier": case.get("identifier") or "",
+        "suspected": case.get("suspected") or "",
+        "screening": case.get("screening") or "",
+        "confirmed": case.get("confirmed") or "",
+        "died": case.get("died") or "",
+        "recovered": case.get("recovered") or "",
+        "tested": case.get("tested") or "",
+        "result": case.get("result") or "",
+        "point_of_entry": case.get("point_of_entry") or "",
+        "reporting_county": case.get("reporting_county") or "",
+        "reporting_sub_county": case.get("reporting_sub_county") or "",
+        "ward": case.get("ward") or "",
+        "facility_fid": case.get("facility_fid") or "",
+        "community_health_unit_chu": case.get("community_health_unit_chu") or "",
+        "reporting_date": case.get("reporting_date") or "",
+        "reporting_time": case.get("reporting_time") or "",
+        "created_at": case.get("created_at") or "",
     }
 
 
@@ -71,46 +103,20 @@ def uhai_source():
             "created_at", initial_value="2026-07-03T00:00:00.000Z"
         ),
     ) -> Iterator[list[dict[str, Any]]]:
-        query = """
-            WITH latest_health_pass AS (
-                SELECT DISTINCT ON (screening_id)
-                    screening_id,
-                    full_name AS pass_full_name,
-                    id_number AS pass_id_number,
-                    screening_status
-                FROM health_passes
-                ORDER BY screening_id, id DESC
-            )
-            SELECT
-                ts.id AS system_id,
-                ts.full_name,
-                ts.sex,
-                ts.date_of_birth,
-                ts.nationality,
-                ts.id_type,
-                ts.id_number,
-                ts.risk_level,
-                ts.status,
-                ts.entry_city,
-                ts.created_at,
-                ts.created_at::date AS reporting_date,
-                ts.created_at::time AS reporting_time,
-                hp.pass_full_name,
-                hp.pass_id_number,
-                hp.screening_status
-            FROM traveler_screenings ts
-            LEFT JOIN latest_health_pass hp ON hp.screening_id = ts.id
-            WHERE ts.created_at >= %(start)s::timestamptz
-              AND (%(end)s::timestamptz IS NULL OR ts.created_at < %(end)s::timestamptz)
-            ORDER BY ts.created_at, ts.id
-        """
-        params = {"start": created_at.last_value, "end": created_at.end_value}
+        date_from = _date_param(created_at.last_value)
+        date_to = _date_param(created_at.end_value)
+        offset = 0
 
-        with psycopg.connect(_database_url(), row_factory=dict_row) as conn:
-            with conn.cursor(name="uhai_traveler_screenings") as cursor:
-                cursor.execute(query, params)
-                while rows := cursor.fetchmany(BATCH_SIZE):
-                    yield [_row_to_screening(row) for row in rows]
+        while True:
+            cases = _fetch_cases(date_from, date_to, offset)
+            if not cases:
+                break
+
+            yield [_case_record(case) for case in cases]
+
+            if len(cases) < PAGE_LIMIT:
+                break
+            offset += PAGE_LIMIT
 
     return traveler_screenings
 
