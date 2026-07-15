@@ -32,18 +32,21 @@ PROJECTION = {
   "nationality": "case_demographics_country_of_nationality",
   "identifier": "national_id",
   "type": "type_of_record",
-  "initial_classification": "type_of_record",
+  "initial_classification": "initial_classification",
   "outcome": "clinical_care_outcome_of_case",
+  "date_of_death": "clinical_care_date_of_death",
   "samples_collected": "laboratory_sample_collected",
   "specimen_id": "laboratory_specimen_id",
   "final_laboratory_results": "laboratory_final_laboratory_result",
+  "final_classification": "laboratory_final_classification",
   "reporting_county": "reporting_county",
   "reporting_subcounty": "reporting_subcounty",
   "health_facility": "case_demographics_health_facility",
   "date_of_investigation": "date_of_investigation",
   "created_timestamp": "created_timestamp",
   "latitude": "location.latitude",
-  "longitude": "location.longitude"
+  "longitude": "location.longitude",
+  "checked_by": "surveillance_tool_official_checked_by_email_address"
 }
 
 @dlt.source(name="adam")
