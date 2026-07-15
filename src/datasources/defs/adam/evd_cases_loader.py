@@ -44,8 +44,8 @@ PROJECTION = {
   "health_facility": "case_demographics_health_facility",
   "date_of_investigation": "date_of_investigation",
   "created_timestamp": "created_timestamp",
-  "latitude": "location.latitude",
-  "longitude": "location.longitude",
+  "latitude": "latitude",
+  "longitude": "longitude",
   "checked_by": "surveillance_tool_official_checked_by_email_address"
 }
 
