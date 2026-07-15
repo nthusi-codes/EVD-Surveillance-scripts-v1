@@ -31,7 +31,7 @@ PROJECTION = {
   "point_of_entry": "point_of_entry",
   "created_timestamp": "created_timestamp",
   "latitude": "location.latitude",
-  "latitude": "location.longitude"
+  "longitude": "location.longitude"
 }
 
 @dlt.source(name="adam")

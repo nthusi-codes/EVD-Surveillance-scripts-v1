@@ -26,6 +26,7 @@ PROJECTION = {
     " ",
     "case_demographics_given"
   ],
+  "vhf_disease": "disease",
   "sex": "case_demographics_sex",
   "date_of_birth": "case_demographics_date_of_birth",
   "nationality": "case_demographics_country_of_nationality",
@@ -42,7 +43,7 @@ PROJECTION = {
   "date_of_investigation": "date_of_investigation",
   "created_timestamp": "created_timestamp",
   "latitude": "location.latitude",
-  "latitude": "location.longitude"
+  "longitude": "location.longitude"
 }
 
 @dlt.source(name="adam")
