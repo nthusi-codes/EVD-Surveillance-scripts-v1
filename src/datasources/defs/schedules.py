@@ -94,3 +94,17 @@ sync_echis_results_daily = dg.ScheduleDefinition(
     name="sync_echis_results_daily",
     description="Syncs results from echis every day at 01:00 UTC",
 )
+
+taifa_care_kenyaemr_sync_job = dg.define_asset_job(
+    name="taifa_care_kenyaemr_sync_job",
+    selection=dg.AssetSelection.groups("taifa_care_kenyaemr"),
+    description="Loads Taifa Care flagged cases for one partition (day) into MinIO",
+)
+
+# daily-partitioned job -> schedule fires at 08:00 UTC for the previous day
+sync_taifa_care_kenyaemr_daily = dg.build_schedule_from_partitioned_job(
+    taifa_care_kenyaemr_sync_job,
+    hour_of_day=8,
+    name="sync_taifa_care_kenyaemr_daily",
+    description="Syncs the previous day's Taifa Care flagged cases every day at 08:00 UTC",
+)

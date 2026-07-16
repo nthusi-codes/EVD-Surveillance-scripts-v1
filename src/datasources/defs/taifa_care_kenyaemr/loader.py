@@ -4,8 +4,9 @@ The DMI (Disease Management Information) system on the KenyaHMIS platform
 exposes cases that KenyaEMR has flagged against notifiable/priority conditions,
 windowed on created_at (startDate/endDate) so each partition run loads one day.
 
-Direct patient identifiers (NUPI, address, date of birth) are dropped as
-records stream through — only a non-identifying subset reaches the raw bucket.
+Records are narrowed to a small demographic/location subset as they stream
+through; the subject's NUPI and address are dropped, but date of birth is
+retained, so the raw bucket holds indirectly-identifying data.
 """
 
 import dlt
@@ -36,34 +37,20 @@ def _client() -> RESTClient:
 
 
 def map_case(c: dict) -> dict:
-    """Reshape a case to a flat, non-identifying subset — drops the subject's
-    NUPI, address and date of birth."""
+    """Reshape a case to the flat subset loaded from this source."""
     subject = c.get("subject") or {}
     return {
+        # id is the primary key; created_at is the incremental cursor — the
+        # resource fails without both
         "id": c.get("caseUniqueId"),
-        "hospital_id_number": c.get("hospitalIdNumber"),
-        "emr_id": c.get("emrId"),
-        "status": c.get("status"),
-        "final_outcome": c.get("finalOutcome"),
-        "final_outcome_date": c.get("finalOutcomeDate"),
-        "interview_date": c.get("interviewDate"),
-        "admission_date": c.get("admissionDate"),
-        "outpatient_date": c.get("outpatientDate"),
-        # pseudonymous linkage key for a patient's multiple cases
-        "patient_unique_id": subject.get("patientUniqueId"),
+        "patient_id": subject.get("patientUniqueId"),
         "sex": subject.get("sex"),
+        "date_of_birth": subject.get("dateOfBirth"),
         "county": subject.get("county"),
         "sub_county": subject.get("subCounty"),
-        "diagnosis": c.get("diagnosis"),
-        "flagged_conditions": c.get("flaggedConditions"),
-        "vital_signs": c.get("vitalSigns"),
-        "risk_factors": c.get("riskFactors"),
-        "vaccinations": c.get("vaccinations"),
-        "complaints": c.get("complaints"),
-        "lab": c.get("lab"),
-        "art_linkages": c.get("artLinkages"),
+        "hospital_id": c.get("hospitalIdNumber"),
+        "interview_date": c.get("interviewDate"),
         "created_at": c.get("createdAt"),
-        "updated_at": c.get("updatedAt"),
     }
 
 
