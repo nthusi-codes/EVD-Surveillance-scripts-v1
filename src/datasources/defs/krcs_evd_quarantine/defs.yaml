@@ -12,13 +12,3 @@ attributes:
       translation:
         key: "krcs_evd_quarantine/{{ resource.name }}"
         group_name: krcs_evd_quarantine
-    - source: .daily_reviews_loader.source
-      pipeline: .daily_reviews_loader.pipeline
-      partitions_def:
-        type: daily
-        start_date: "2026-06-01"
-      backfill_policy:
-        type: single_run
-      translation:
-        key: "krcs_evd_quarantine/{{ resource.name }}"
-        group_name: krcs_evd_quarantine

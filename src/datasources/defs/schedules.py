@@ -98,7 +98,7 @@ sync_echis_results_daily = dg.ScheduleDefinition(
 krcs_evd_quarantine_sync_job = dg.define_asset_job(
     name="krcs_evd_quarantine_sync_job",
     selection=dg.AssetSelection.groups("krcs_evd_quarantine"),
-    description="Loads EVD quarantine records and daily clinical reviews for one partition (day) into MinIO",
+    description="Loads EVD quarantine records for one partition (day) into MinIO",
 )
 
 # daily-partitioned job -> schedule fires at 08:00 UTC for the previous day
@@ -106,5 +106,5 @@ sync_krcs_evd_quarantine_daily = dg.build_schedule_from_partitioned_job(
     krcs_evd_quarantine_sync_job,
     hour_of_day=8,
     name="sync_krcs_evd_quarantine_daily",
-    description="Syncs the previous day's EVD quarantine records and daily reviews every day at 08:00 UTC",
+    description="Syncs the previous day's EVD quarantine records every day at 08:00 UTC",
 )
