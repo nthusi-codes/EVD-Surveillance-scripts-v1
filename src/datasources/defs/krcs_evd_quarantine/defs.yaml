@@ -1,0 +1,14 @@
+type: datasources.components.DltLoadSourceCollection
+
+attributes:
+  loads:
+    - source: .records_loader.source
+      pipeline: .records_loader.pipeline
+      partitions_def:
+        type: daily
+        start_date: "2026-06-01"   # the quarantine register starts here
+      backfill_policy:
+        type: single_run           # a backfill range = one windowed run
+      translation:
+        key: "krcs_evd_quarantine/{{ resource.name }}"
+        group_name: krcs_evd_quarantine
