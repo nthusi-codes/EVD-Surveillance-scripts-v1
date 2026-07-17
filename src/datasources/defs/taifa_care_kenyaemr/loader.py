@@ -88,7 +88,7 @@ def taifa_care_kenyaemr_source():
         }
         if load_date.end_value:
             params["endDate"] = load_date.end_value[:10]
-        for page in client.paginate("case", params=params, data_selector="data.content"):
+        for page in client.paginate("case", params=params, data_selector="data.data"):
             yield [map_case(c) for c in page]
 
     return flagged_cases
