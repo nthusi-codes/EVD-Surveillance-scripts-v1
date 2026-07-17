@@ -1,8 +1,9 @@
 """Load passively-flagged surveillance cases from Taifa Care (KenyaEMR) into MinIO.
 
 The DMI system on the KenyaHMIS platform
-exposes cases that KenyaEMR has flagged against notifiable/priority conditions,
-windowed on load_date (startDate/endDate) so each partition run loads one day.
+exposes cases that KenyaEMR has flagged against notifiable/priority conditions;
+only the EVD-relevant flags are requested (see FLAGS). Cases are windowed on
+load_date (startDate/endDate) so each partition run loads one day.
 
 Records are narrowed to a small demographic/location subset as they stream
 through; the subject's NUPI and address are dropped, but date of birth is
@@ -16,6 +17,9 @@ from dlt.sources.helpers.rest_client.paginators import PageNumberPaginator
 
 # earliest data to load; the partition start_date in defs.yaml must match
 INITIAL_VALUE = "2025-01-01T00:00:00.000Z"
+
+# only cases flagged against these conditions are requested
+FLAGS = "EBOLA,VIRAL HAEMORRHAGIC FEVER"
 
 
 def _client() -> RESTClient:
@@ -77,7 +81,11 @@ def taifa_care_kenyaemr_source():
         load_date=dlt.sources.incremental("load_date", initial_value=INITIAL_VALUE),
     ):
         client = _client()
-        params = {"size": 100, "startDate": load_date.last_value[:10]}
+        params = {
+            "size": 100,
+            "flags": FLAGS,
+            "startDate": load_date.last_value[:10],
+        }
         if load_date.end_value:
             params["endDate"] = load_date.end_value[:10]
         for page in client.paginate("case", params=params, data_selector="data.content"):
